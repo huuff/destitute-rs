@@ -18,7 +18,6 @@ impl syn::parse::Parse for InputStruct {
                 fields: syn::Fields::Named(named),
                 ..
             }) => named,
-            // _ => unimplemented!("only structs with named fields can derive `Destitute`"),
             _ => {
                 return Err(syn::Error::new(
                     span,
@@ -61,5 +60,17 @@ mod tests {
             }
             .to_string()
         );
+    }
+
+    #[test]
+    fn fails_on_tuple_struct() {
+        // ARRANGE
+        let input = quote::quote!(struct Example(u8, u8));
+
+        // ACT
+        let result = syn::parse2::<InputStruct>(input);
+
+        // ASSERT
+        assert!(result.is_err());
     }
 }
