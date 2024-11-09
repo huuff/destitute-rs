@@ -1,41 +1,38 @@
-use proc_macro::TokenStream;
-use quote::{quote, ToTokens};
-use syn::{parse_macro_input, Data, DataStruct, DeriveInput, Field, Fields, FieldsNamed, Ident};
+use proc_macro2::TokenStream;
+use quote::quote;
 
-#[proc_macro_derive(Destitute, attributes(destitute))]
 pub fn derive_destitute(item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as DeriveInput);
+    let input = syn::parse2::<syn::DeriveInput>(item).unwrap();
     let name = input.ident;
     let vis = input.vis;
 
     let fields = match input.data {
-        Data::Struct(DataStruct {
-            fields: Fields::Named(FieldsNamed { ref named, .. }),
+        syn::Data::Struct(syn::DataStruct {
+            fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
             ..
         }) => named,
         _ => unimplemented!("only structs with named fields can derive `Destitute`"),
     };
     let fields = fields.into_iter().map(MaybeDestituteField::from);
 
-    let destitute_name = syn::parse_str::<Ident>(&format!("Destitute{name}")).unwrap();
+    let destitute_name = syn::parse_str::<syn::Ident>(&format!("Destitute{name}")).unwrap();
 
     quote! {
         #vis struct #destitute_name {
             #(#fields,)*
         }
     }
-    .into()
 }
 
-struct MaybeDestituteField<'a>(&'a Field);
+struct MaybeDestituteField<'a>(&'a syn::Field);
 
-impl<'a> From<&'a Field> for MaybeDestituteField<'a> {
-    fn from(field: &'a Field) -> Self {
+impl<'a> From<&'a syn::Field> for MaybeDestituteField<'a> {
+    fn from(field: &'a syn::Field) -> Self {
         Self(field)
     }
 }
 
-impl<'a> ToTokens for MaybeDestituteField<'a> {
+impl<'a> quote::ToTokens for MaybeDestituteField<'a> {
     fn to_tokens(&self, tokens: &mut proc_macro2::TokenStream) {
         let destitute_attr = self
             .0

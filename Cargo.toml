@@ -1,6 +1,7 @@
 [workspace]
 resolver = "2"
-members = [ "macros" , "usage"]
+members = [ "destitute-code", "destitute-macro" , "destitute-usage"]
 
 [workspace.dependencies]
-destitute-macro = { path = "./macros" }
+destitute-macro = { path = "./destitute-macro" }
+destitute-code = { path = "./destitute-code" }
