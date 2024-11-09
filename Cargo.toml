@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-members = [ "destitute-code", "destitute-macro" , "destitute-usage"]
+members = ["destitute-code", "destitute-macro", "destitute-usage"]
 
 [workspace.dependencies]
 destitute-macro = { path = "./destitute-macro" }
