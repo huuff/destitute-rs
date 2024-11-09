@@ -1,9 +1,10 @@
+mod input;
+
 use proc_macro2::TokenStream;
 use quote::quote;
-use syn::spanned::Spanned;
 
 pub fn derive_destitute(item: TokenStream) -> TokenStream {
-    let input = match syn::parse2::<InputStruct>(item) {
+    let input = match syn::parse2::<input::InputStruct>(item) {
         Ok(input) => input,
         Err(err) => return err.to_compile_error(),
     };
@@ -16,37 +17,6 @@ pub fn derive_destitute(item: TokenStream) -> TokenStream {
         #vis struct #destitute_name {
             #(#fields,)*
         }
-    }
-}
-
-struct InputStruct {
-    ident: syn::Ident,
-    vis: syn::Visibility,
-    fields: syn::FieldsNamed,
-}
-
-impl syn::parse::Parse for InputStruct {
-    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
-        let input = syn::DeriveInput::parse(input)?;
-        let span = input.span();
-
-        let ident = input.ident;
-        let vis = input.vis;
-        let fields = match input.data {
-            syn::Data::Struct(syn::DataStruct {
-                fields: syn::Fields::Named(named),
-                ..
-            }) => named,
-            // _ => unimplemented!("only structs with named fields can derive `Destitute`"),
-            _ => {
-                return Err(syn::Error::new(
-                    span,
-                    "only struct with named fields can derive `Destitute`",
-                ))
-            }
-        };
-
-        Ok(InputStruct { ident, vis, fields })
     }
 }
 
