@@ -1,26 +1,52 @@
 use proc_macro2::TokenStream;
 use quote::quote;
+use syn::spanned::Spanned;
 
 pub fn derive_destitute(item: TokenStream) -> TokenStream {
-    let input = syn::parse2::<syn::DeriveInput>(item).unwrap();
-    let name = input.ident;
-    let vis = input.vis;
-
-    let fields = match input.data {
-        syn::Data::Struct(syn::DataStruct {
-            fields: syn::Fields::Named(syn::FieldsNamed { ref named, .. }),
-            ..
-        }) => named,
-        _ => unimplemented!("only structs with named fields can derive `Destitute`"),
+    let input = match syn::parse2::<InputStruct>(item) {
+        Ok(input) => input,
+        Err(err) => return err.to_compile_error(),
     };
-    let fields = fields.into_iter().map(MaybeDestituteField::from);
 
-    let destitute_name = syn::parse_str::<syn::Ident>(&format!("Destitute{name}")).unwrap();
+    let vis = &input.vis;
+    let fields = input.fields.named.iter().map(MaybeDestituteField::from);
+    let destitute_name = quote::format_ident!("Destitute{}", input.ident);
 
     quote! {
         #vis struct #destitute_name {
             #(#fields,)*
         }
+    }
+}
+
+struct InputStruct {
+    ident: syn::Ident,
+    vis: syn::Visibility,
+    fields: syn::FieldsNamed,
+}
+
+impl syn::parse::Parse for InputStruct {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let input = syn::DeriveInput::parse(input)?;
+        let span = input.span();
+
+        let ident = input.ident;
+        let vis = input.vis;
+        let fields = match input.data {
+            syn::Data::Struct(syn::DataStruct {
+                fields: syn::Fields::Named(named),
+                ..
+            }) => named,
+            // _ => unimplemented!("only structs with named fields can derive `Destitute`"),
+            _ => {
+                return Err(syn::Error::new(
+                    span,
+                    "only struct with named fields can derive `Destitute`",
+                ))
+            }
+        };
+
+        Ok(InputStruct { ident, vis, fields })
     }
 }
 
