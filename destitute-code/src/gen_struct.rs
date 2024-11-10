@@ -4,17 +4,11 @@ use quote::{quote, ToTokens};
 
 pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
     let fields = input.fields.named.iter().map(|field| {
-        find_destitute_attr(field.attrs.iter())
-            .map(|_| {
-                let ty = &field.ty;
-                let mut optional_field = field.clone();
-                optional_field
-                    .attrs
-                    .retain(|attr| !attr.path().is_ident("destitute"));
-                optional_field.ty = syn::parse_quote!(Option<#ty>);
-                optional_field.into_token_stream()
-            })
-            .unwrap_or(field.to_token_stream())
+        if let Some(destitute_attr) = find_destitute_attr(field.attrs.iter()) {
+            to_destitute_field(field, destitute_attr).to_token_stream()
+        } else {
+            field.to_token_stream()
+        }
     });
 
     let destitute_name = quote::format_ident!("Destitute{}", input.ident);
@@ -29,6 +23,16 @@ pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
             #(#fields,)*
         }
     }
+}
+
+fn to_destitute_field(field: &syn::Field, _destitute_attr: &syn::Attribute) -> syn::Field {
+    let ty = &field.ty;
+    let mut destitute_field = field.clone();
+    destitute_field
+        .attrs
+        .retain(|attr| !attr.path().is_ident("destitute"));
+    destitute_field.ty = syn::parse_quote!(Option<#ty>);
+    destitute_field
 }
 
 fn find_destitute_attr<'a>(
