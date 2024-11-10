@@ -1,7 +1,7 @@
 use crate::input::InputStruct;
 use proc_macro2::TokenStream;
 use quote::{quote, ToTokens};
-use syn::spanned::Spanned;
+use syn::{parse::Parser, punctuated::Punctuated, spanned::Spanned};
 
 pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
     let fields = input.fields.named.iter().map(|field| {
@@ -67,7 +67,9 @@ fn to_destitute_field(
 
 /// Parsed configuration inside a `#[destitute]` attribute for a field
 #[derive(Default)]
-struct FieldDestitution {}
+struct FieldDestitution {
+    recursive: bool,
+}
 
 impl FieldDestitution {
     fn find_in<'a, Iter>(attrs: Iter) -> Option<Self>
@@ -77,7 +79,19 @@ impl FieldDestitution {
         attrs
             .into_iter()
             .find(|attr| attr.path().is_ident("destitute"))
-            .map(|_| FieldDestitution {})
+            .map(|attr| match &attr.meta {
+                syn::Meta::List(meta) => {
+                    let parser = Punctuated::<syn::Ident, syn::Token![,]>::parse_terminated;
+                    let cfg = parser
+                        .parse2(meta.tokens.clone())
+                        .expect("TODO: proper error handling");
+                    FieldDestitution {
+                        recursive: cfg.iter().any(|cfg| cfg == "rec"),
+                    }
+                }
+                syn::Meta::Path(_) => FieldDestitution::default(),
+                _ => panic!("TODO return syn::Error"),
+            })
     }
 }
 
@@ -128,5 +142,17 @@ mod tests {
             field.to_token_stream().to_string(),
             destitute_field.to_token_stream().to_string()
         );
+    }
+
+    #[test]
+    fn detects_recursion() {
+        // ARRANGE
+        let destitute_attr: syn::Attribute = syn::parse_quote!(#[destitute(rec)]);
+
+        // ACT
+        let destitution = FieldDestitution::find_in(&[destitute_attr]);
+
+        // ASSERT
+        assert!(destitution.expect("should be `Some`").recursive);
     }
 }
