@@ -4,8 +4,8 @@ use quote::{quote, ToTokens};
 
 pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
     let fields = input.fields.named.iter().map(|field| {
-        if let Some(destitute_attr) = find_destitute_attr(field.attrs.iter()) {
-            to_destitute_field(field, destitute_attr).to_token_stream()
+        if let Some(field_destitution) = FieldDestitution::find_in(&field.attrs) {
+            to_destitute_field(field, &field_destitution).to_token_stream()
         } else {
             field.to_token_stream()
         }
@@ -25,8 +25,9 @@ pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
     }
 }
 
-fn to_destitute_field(field: &syn::Field, _destitute_attr: &syn::Attribute) -> syn::Field {
+fn to_destitute_field(field: &syn::Field, _destitution: &FieldDestitution) -> syn::Field {
     let ty = &field.ty;
+
     let mut destitute_field = field.clone();
     destitute_field
         .attrs
@@ -35,10 +36,19 @@ fn to_destitute_field(field: &syn::Field, _destitute_attr: &syn::Attribute) -> s
     destitute_field
 }
 
-fn find_destitute_attr<'a>(
-    mut iter: impl Iterator<Item = &'a syn::Attribute>,
-) -> Option<&'a syn::Attribute> {
-    iter.find(|attr| attr.path().is_ident("destitute"))
+/// Parsed configuration inside a `#[destitute]` attribute for a field
+struct FieldDestitution {}
+
+impl FieldDestitution {
+    fn find_in<'a, Iter>(attrs: Iter) -> Option<Self>
+    where
+        Iter: IntoIterator<Item = &'a syn::Attribute>,
+    {
+        attrs
+            .into_iter()
+            .find(|attr| attr.path().is_ident("destitute"))
+            .map(|_| FieldDestitution {})
+    }
 }
 
 #[cfg(test)]
