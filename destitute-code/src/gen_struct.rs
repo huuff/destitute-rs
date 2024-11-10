@@ -5,7 +5,7 @@ use syn::spanned::Spanned;
 
 pub fn generate_destitute_struct(input: &InputStruct) -> TokenStream {
     let fields = input.fields.named.iter().map(|field| {
-        if let Some(field_destitution) = FieldDestitution::find_in(&field.attrs) {
+        if let Some(field_destitution) = FieldDestitution::find_in(field) {
             match to_destitute_field(field, &field_destitution) {
                 Ok(field) => field.to_token_stream(),
                 Err(err) => err.to_compile_error().into_token_stream(),
@@ -70,12 +70,10 @@ fn to_destitute_field(
 struct FieldDestitution {}
 
 impl FieldDestitution {
-    fn find_in<'a, Iter>(attrs: Iter) -> Option<Self>
-    where
-        Iter: IntoIterator<Item = &'a syn::Attribute>,
-    {
-        attrs
-            .into_iter()
+    fn find_in(field: &syn::Field) -> Option<Self> {
+        field
+            .attrs
+            .iter()
             .find(|attr| attr.path().is_ident("destitute"))
             .map(|_| FieldDestitution {})
     }
