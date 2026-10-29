@@ -1,0 +1,12 @@
+[workspace]
+resolver = "3"
+members = ["destitute", "destitute-derive"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/haf/destitute-rs"
+keywords = ["derive", "macro", "option", "partial", "builder"]
+categories = ["rust-patterns", "no-std"]
