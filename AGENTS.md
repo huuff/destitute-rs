@@ -1,9 +1,9 @@
 # destitute
 
 Rust derive macro: `#[derive(Destitute)]` on a struct `S` generates `DestituteS`
-(every field `Option<T>` unless `#[destitute(mandatory)]`), `S::into_destitute`,
+(every field `Option<T>` unless `#[destitute(mandatory)]` or already an `Option`), `S::into_destitute`,
 `DestituteS::try_undestitute -> Result<S, MissingField>`, matching `From`/`TryFrom`
-impls, and a `MaybeS { Complete, Destitute }` enum (opt out with `no_enum`).
+impls, and a `MaybeDestituteS { Complete, Destitute }` enum (opt out with `no_enum`).
 Full attribute reference lives in the crate docs at `destitute/src/lib.rs`.
 
 Workspace: `destitute` (public facade, `no_std`, owns `MissingField`) and

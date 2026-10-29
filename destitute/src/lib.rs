@@ -23,8 +23,8 @@
 //! let back = full.into_destitute().try_undestitute().unwrap();
 //! assert_eq!(back, User { id: 7, name: "ana".into(), age: 30 });
 //!
-//! // `MaybeUser` holds either form; it is generated unless `#[destitute(no_enum)]`.
-//! let either: MaybeUser = DestituteUser { id: 1, ..Default::default() }.into();
+//! // `MaybeDestituteUser` holds either form; generated unless `#[destitute(no_enum)]`.
+//! let either: MaybeDestituteUser = DestituteUser { id: 1, ..Default::default() }.into();
 //! assert!(either.try_undestitute().is_err());
 //! ```
 //!
@@ -38,12 +38,15 @@
 //! | `derive(A, B)` | derives added to the destitute struct |
 //! | `attr(...)` | an arbitrary attribute added to the destitute struct, e.g. `attr(serde(default))` |
 //! | `no_enum` | skip the either-or enum |
-//! | `enum_name = "Ident"` | name of the enum (default `Maybe<Struct>`) |
+//! | `enum_name = "Ident"` | name of the enum (default `MaybeDestitute<Struct>`) |
 //! | `enum_derive(A, B)` | derives added to the enum |
 //! | `enum_attr(...)` | an arbitrary attribute added to the enum |
 //!
 //! On a field, `#[destitute(mandatory)]` keeps the field as is instead of
-//! wrapping it in `Option`.
+//! wrapping it in `Option`. Fields whose type is spelled `Option<T>` (or
+//! `core::option::Option<T>` / `std::option::Option<T>`) are also kept as is:
+//! they are already optional, and `None` is a valid value for them in both
+//! forms, so they never cause `try_undestitute` to fail.
 //!
 //! # Generated items
 //!
@@ -57,9 +60,6 @@
 //!   is reported.
 //! - `enum E { Complete(S), Destitute(D) }` with `into_destitute`,
 //!   `try_undestitute`, `From<S>` and `From<D>`.
-//!
-//! Fields that are already `Option<T>` are wrapped again (`Option<Option<T>>`);
-//! mark them `mandatory` if that is not what you want.
 //!
 //! The crate is `no_std`.
 #![no_std]

@@ -87,14 +87,14 @@ fn either_enum() {
         name: "cy".into(),
         age: 9,
     };
-    let a: MaybeUser = user.clone().into();
-    let b: MaybeUser = user.clone().into_destitute().into();
-    assert_eq!(a, MaybeUser::Complete(user.clone()));
-    assert!(matches!(b, MaybeUser::Destitute(_)));
+    let a: MaybeDestituteUser = user.clone().into();
+    let b: MaybeDestituteUser = user.clone().into_destitute().into();
+    assert_eq!(a, MaybeDestituteUser::Complete(user.clone()));
+    assert!(matches!(b, MaybeDestituteUser::Destitute(_)));
     assert_eq!(a.clone().into_destitute(), b.clone().into_destitute());
     assert_eq!(a.try_undestitute(), Ok(user.clone()));
     assert_eq!(b.try_undestitute(), Ok(user));
-    let missing: MaybeUser = DestituteUser {
+    let missing: MaybeDestituteUser = DestituteUser {
         id: 3,
         ..Default::default()
     }
@@ -114,13 +114,19 @@ where
 }
 
 #[test]
-fn custom_name_generics_and_double_option() {
+fn custom_name_generics_and_flat_option() {
     let p = Partial::<u8> {
         key: 1,
-        value: Some(None),
+        value: None,
     };
     let r = p.try_undestitute().unwrap();
     assert_eq!((r.key, r.value), (1, None));
+    let p = Renamed::<u8> {
+        key: 2,
+        value: Some(3),
+    }
+    .into_destitute();
+    assert_eq!((p.key, p.value), (2, Some(3)));
 }
 
 #[derive(Destitute)]

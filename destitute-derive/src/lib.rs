@@ -93,6 +93,32 @@ fn is_mandatory(field: &Field) -> Result<bool> {
     Ok(mandatory)
 }
 
+/// `Option<T>`, `core::option::Option<T>` or `std::option::Option<T>`, by spelling.
+fn is_option(ty: &syn::Type) -> bool {
+    let syn::Type::Path(path) = ty else {
+        return false;
+    };
+    if path.qself.is_some() {
+        return false;
+    }
+    let segments: Vec<String> = path
+        .path
+        .segments
+        .iter()
+        .map(|s| s.ident.to_string())
+        .collect();
+    let segments: Vec<&str> = segments.iter().map(String::as_str).collect();
+    let prefix_ok = matches!(
+        segments.as_slice(),
+        ["Option"] | ["core" | "std", "option", "Option"]
+    );
+    prefix_ok
+        && matches!(
+            &path.path.segments.last().unwrap().arguments,
+            syn::PathArguments::AngleBracketed(args) if args.args.len() == 1
+        )
+}
+
 fn doc_attrs(attrs: &[Attribute]) -> impl Iterator<Item = &Attribute> {
     attrs.iter().filter(|a| a.path().is_ident("doc"))
 }
@@ -133,7 +159,7 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         let ty = &field.ty;
         let fvis = &field.vis;
         let docs = doc_attrs(&field.attrs);
-        if is_mandatory(field)? {
+        if is_mandatory(field)? || is_option(ty) {
             dest_fields.push(quote!(#(#docs)* #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
             unwrap.push(quote!(#ident: self.#ident));
@@ -197,7 +223,7 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
     if !opts.no_enum {
         let en = opts
             .enum_name
-            .unwrap_or_else(|| format_ident!("Maybe{}", name));
+            .unwrap_or_else(|| format_ident!("MaybeDestitute{}", name));
         let enum_derives = &opts.enum_derives;
         let enum_attrs = &opts.enum_attrs;
         let enum_doc = format!("Either a complete [`{name_str}`] or a [`{dest}`].");
@@ -278,6 +304,20 @@ mod tests {
         assert!(
             err("struct S { #[destitute(optional)] a: u8 }").starts_with("unknown field option")
         );
+    }
+
+    #[test]
+    fn option_fields_stay_flat() {
+        for ty in [
+            "Option<u8>",
+            "::core::option::Option<u8>",
+            "std::option::Option<u8>",
+        ] {
+            assert!(is_option(&syn::parse_str(ty).unwrap()), "{ty}");
+        }
+        for ty in ["Vec<u8>", "Option", "foo::Option<u8>", "Option<u8, u8>"] {
+            assert!(!is_option(&syn::parse_str(ty).unwrap()), "{ty}");
+        }
     }
 
     #[test]
