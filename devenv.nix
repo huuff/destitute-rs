@@ -28,7 +28,7 @@ _:
     clippy = {
       enable = true;
       settings = {
-        extraArgs = "--workspace --all-targets";
+        extraArgs = "--workspace --all-targets --all-features";
         denyWarnings = true;
       };
     };
@@ -39,6 +39,6 @@ _:
   };
 
   enterTest = ''
-    cargo test --workspace
+    cargo test --workspace --all-features
   '';
 }

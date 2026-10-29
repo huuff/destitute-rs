@@ -9,7 +9,7 @@ converting back fails with the name of the first field that is missing.
 destitute = "0.1"
 ```
 
-`no_std`, no runtime dependencies beyond the derive itself.
+`no_std`, no runtime dependencies beyond the derive itself (serde is optional).
 
 ## The problem
 
@@ -110,9 +110,46 @@ impl From<User> for MaybeDestituteUser { .. }
 impl From<DestituteUser> for MaybeDestituteUser { .. }
 ```
 
-Pair it with `#[destitute(enum_attr(serde(untagged)))]` and you can
-deserialize either form from the same payload, then call `try_undestitute`
-once when you actually need the complete type.
+## serde
+
+Enable the `serde` feature and add `serde` to the struct options:
+
+```toml
+destitute = { version = "0.1", features = ["serde"] }
+```
+
+```rust
+#[derive(Destitute, Serialize, Deserialize)]
+#[destitute(serde, derive(Default))]
+struct User {
+    #[destitute(mandatory)]
+    id: u64,
+    name: String,
+    age: u8,
+}
+```
+
+This derives `Serialize` and `Deserialize` on both generated types, with:
+
+- `#[serde(default)]` on every optional field of `DestituteUser`, so a
+  missing key is `None` rather than an error;
+- `#[serde(untagged)]` on `MaybeDestituteUser`, `Complete` first. A payload
+  becomes `Complete(User)` when every field is there and valid, and
+  `Destitute(DestituteUser)` otherwise. Only a missing mandatory field makes
+  deserialization fail.
+
+```rust
+let full: MaybeDestituteUser = serde_json::from_str(r#"{"id":7,"name":"ana","age":30}"#)?;
+assert!(matches!(full, MaybeDestituteUser::Complete(_)));
+
+let partial: MaybeDestituteUser = serde_json::from_str(r#"{"id":7,"name":"ana"}"#)?;
+assert!(matches!(partial, MaybeDestituteUser::Destitute(_)));
+assert_eq!(partial.try_undestitute().unwrap_err().field, "age");
+```
+
+Serialization is transparent: the enum serializes as whichever struct it
+holds. Your own struct still needs its own serde derives, and extra serde
+attributes go through `attr(serde(..))` / `enum_attr(serde(..))`.
 
 ## Field rules
 
@@ -137,6 +174,7 @@ split across several attributes.
 | `derive(A, B)` | derives added to the destitute struct |
 | `attr(...)` | one attribute added verbatim to the destitute struct, e.g. `attr(serde(default))` |
 | `no_enum` | do not generate the enum |
+| `serde` | with the `serde` feature: derive `Serialize`/`Deserialize` on both generated types (see above) |
 | `enum_name = "Ident"` | name of the enum (default `MaybeDestitute<Struct>`) |
 | `enum_derive(A, B)` | derives added to the enum |
 | `enum_attr(...)` | one attribute added verbatim to the enum |
@@ -158,7 +196,7 @@ carried over to the destitute struct.
 
 ```sh
 devenv shell          # or `direnv allow`; installs git hooks
-cargo test --workspace
+cargo test --workspace --all-features
 ```
 
 The workspace has two crates: `destitute` (the public facade, owns

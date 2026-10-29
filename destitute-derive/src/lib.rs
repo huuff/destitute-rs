@@ -21,6 +21,7 @@ struct StructOpts {
     derives: Vec<Meta>,
     attrs: Vec<Meta>,
     no_enum: bool,
+    serde: bool,
     enum_name: Option<Ident>,
     enum_derives: Vec<Meta>,
     enum_attrs: Vec<Meta>,
@@ -41,6 +42,15 @@ fn parse_struct_opts(attrs: &[Attribute]) -> Result<StructOpts> {
                     opts.enum_name = Some(ident_from(&nv.value)?);
                 }
                 ("no_enum", Meta::Path(_)) => opts.no_enum = true,
+                #[cfg(feature = "serde")]
+                ("serde", Meta::Path(_)) => opts.serde = true,
+                #[cfg(not(feature = "serde"))]
+                ("serde", Meta::Path(_)) => {
+                    return Err(Error::new(
+                        meta.span(),
+                        "`#[destitute(serde)]` needs the `serde` feature of the `destitute` crate",
+                    ));
+                }
                 ("derive", Meta::List(list)) => opts.derives.extend(list_items(list)?),
                 ("enum_derive", Meta::List(list)) => opts.enum_derives.extend(list_items(list)?),
                 ("attr", Meta::List(list)) => opts.attrs.extend(list_items(list)?),
@@ -49,7 +59,7 @@ fn parse_struct_opts(attrs: &[Attribute]) -> Result<StructOpts> {
                     return Err(Error::new(
                         meta.span(),
                         "unknown `#[destitute(...)]` option; expected one of \
-                         `name = \"..\"`, `derive(..)`, `attr(..)`, `no_enum`, \
+                         `name = \"..\"`, `derive(..)`, `attr(..)`, `no_enum`, `serde`, \
                          `enum_name = \"..\"`, `enum_derive(..)`, `enum_attr(..)`",
                     ));
                 }
@@ -151,6 +161,12 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         .unwrap_or_else(|| format_ident!("Destitute{}", name));
     let (impl_generics, ty_generics, where_clause) = input.generics.split_for_impl();
 
+    let field_default = if opts.serde {
+        quote!(#[serde(default)])
+    } else {
+        quote!()
+    };
+
     let mut dest_fields = Vec::new();
     let mut wrap = Vec::new();
     let mut unwrap = Vec::new();
@@ -159,13 +175,18 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         let ty = &field.ty;
         let fvis = &field.vis;
         let docs = doc_attrs(&field.attrs);
-        if is_mandatory(field)? || is_option(ty) {
+        if is_mandatory(field)? {
             dest_fields.push(quote!(#(#docs)* #fvis #ident: #ty));
+            wrap.push(quote!(#ident: self.#ident));
+            unwrap.push(quote!(#ident: self.#ident));
+        } else if is_option(ty) {
+            dest_fields.push(quote!(#(#docs)* #field_default #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
             unwrap.push(quote!(#ident: self.#ident));
         } else {
             let field_str = ident.to_string();
-            dest_fields.push(quote!(#(#docs)* #fvis #ident: ::core::option::Option<#ty>));
+            dest_fields
+                .push(quote!(#(#docs)* #field_default #fvis #ident: ::core::option::Option<#ty>));
             wrap.push(quote!(#ident: ::core::option::Option::Some(self.#ident)));
             unwrap.push(quote! {
                 #ident: match self.#ident {
@@ -183,10 +204,21 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
 
     let derives = &opts.derives;
     let attrs = &opts.attrs;
+    let (serde_derive, serde_struct_attr, serde_enum_attr) = if opts.serde {
+        (
+            quote!(#[derive(::destitute::__private::serde::Serialize, ::destitute::__private::serde::Deserialize)]),
+            quote!(#[serde(crate = "::destitute::__private::serde")]),
+            quote!(#[serde(crate = "::destitute::__private::serde", untagged)]),
+        )
+    } else {
+        (quote!(), quote!(), quote!())
+    };
     let dest_doc = format!("All-optional form of [`{name_str}`].");
     let mut out = quote! {
         #[doc = #dest_doc]
         #[derive(#(#derives),*)]
+        #serde_derive
+        #serde_struct_attr
         #(#[#attrs])*
         #vis struct #dest #ty_generics #where_clause {
             #(#dest_fields,)*
@@ -230,9 +262,11 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         out.extend(quote! {
             #[doc = #enum_doc]
             #[derive(#(#enum_derives),*)]
+            #serde_derive
+            #serde_enum_attr
             #(#[#enum_attrs])*
             #vis enum #en #ty_generics #where_clause {
-                /// Every field is present.
+                /// Every field is present. Tried first when deserializing.
                 Complete(#name #ty_generics),
                 /// Some fields may be missing.
                 Destitute(#dest #ty_generics),

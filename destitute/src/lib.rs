@@ -38,6 +38,7 @@
 //! | `derive(A, B)` | derives added to the destitute struct |
 //! | `attr(...)` | an arbitrary attribute added to the destitute struct, e.g. `attr(serde(default))` |
 //! | `no_enum` | skip the either-or enum |
+//! | `serde` | (feature `serde`) derive `Serialize`/`Deserialize` on both generated types, see below |
 //! | `enum_name = "Ident"` | name of the enum (default `MaybeDestitute<Struct>`) |
 //! | `enum_derive(A, B)` | derives added to the enum |
 //! | `enum_attr(...)` | an arbitrary attribute added to the enum |
@@ -61,6 +62,21 @@
 //! - `enum E { Complete(S), Destitute(D) }` with `into_destitute`,
 //!   `try_undestitute`, `From<S>` and `From<D>`.
 //!
+//! # serde
+//!
+//! With the `serde` cargo feature, `#[destitute(serde)]` derives `Serialize`
+//! and `Deserialize` on the destitute struct and the enum:
+//!
+//! - every optional field of the destitute struct gets `#[serde(default)]`,
+//!   so a missing key deserializes as `None`;
+//! - the enum is `#[serde(untagged)]` with `Complete` first, so a payload
+//!   deserializes into the complete type when it can and falls back to the
+//!   destitute one otherwise. Mandatory fields must be present in both.
+//!
+//! Your own struct still needs its own `#[derive(Serialize, Deserialize)]`.
+//! Additional serde attributes go through `attr(serde(..))` /
+//! `enum_attr(serde(..))`.
+//!
 //! The crate is `no_std`.
 #![no_std]
 
@@ -68,8 +84,15 @@ use core::fmt;
 
 pub use destitute_derive::Destitute;
 
+#[doc(hidden)]
+pub mod __private {
+    #[cfg(feature = "serde")]
+    pub use serde;
+}
+
 /// A `None` field blocked promotion of a destitute value into its complete form.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct MissingField {
     /// Name of the type that could not be built.
     pub type_name: &'static str,

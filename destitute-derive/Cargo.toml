@@ -10,6 +10,10 @@ repository.workspace = true
 [lib]
 proc-macro = true
 
+[features]
+# Enables `#[destitute(serde)]`. Turn on via the `serde` feature of `destitute`.
+serde = []
+
 [dependencies]
 proc-macro2 = "1"
 quote = "1"
