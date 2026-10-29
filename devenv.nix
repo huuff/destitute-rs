@@ -25,7 +25,13 @@ _:
     shfmt.enable = true;
 
     # --- static analysis: rust ---
-    clippy.enable = true;
+    clippy = {
+      enable = true;
+      settings = {
+        extraArgs = "--workspace --all-targets";
+        denyWarnings = true;
+      };
+    };
     rustfmt.enable = true;
 
     # --- commit messages: Conventional Commits (feat:, fix:, chore:, ...) ---
