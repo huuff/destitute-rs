@@ -129,6 +129,70 @@ fn custom_name_generics_and_flat_option() {
     assert_eq!((p.key, p.value), (2, Some(3)));
 }
 
+mod accessors {
+    use destitute::Destitute;
+
+    #[derive(Destitute)]
+    #[destitute(accessors, derive(Default))]
+    pub struct Customer<T>
+    where
+        T: Default,
+    {
+        #[destitute(mandatory)]
+        pub email: String,
+        #[destitute(mandatory)]
+        pub tags: Vec<T>,
+        /// Private field: its accessors are private too, and unused ones do not warn.
+        #[destitute(mandatory)]
+        secret: u8,
+        #[destitute(mandatory)]
+        pub r#type: u8,
+        pub name: String,
+        pub nickname: Option<String>,
+    }
+
+    pub fn both() -> [MaybeDestituteCustomer<u8>; 2] {
+        let complete = Customer {
+            email: "a@b.c".into(),
+            tags: vec![1],
+            secret: 7,
+            r#type: 2,
+            name: "ana".into(),
+            nickname: None,
+        };
+        let destitute = DestituteCustomer {
+            email: "a@b.c".into(),
+            tags: vec![1],
+            secret: 7,
+            r#type: 2,
+            ..Default::default()
+        };
+        assert_eq!(*MaybeDestituteCustomer::from(destitute).secret(), 7);
+        let destitute = DestituteCustomer {
+            email: "a@b.c".into(),
+            tags: vec![1],
+            secret: 7,
+            r#type: 2,
+            ..Default::default()
+        };
+        [complete.into(), destitute.into()]
+    }
+}
+
+#[test]
+fn enum_accessors_read_and_write_mandatory_fields_in_both_variants() {
+    for mut customer in accessors::both() {
+        let email: &String = customer.email();
+        assert_eq!(email, "a@b.c");
+        assert_eq!(*customer.r#type(), 2);
+        customer.tags_mut().push(2);
+        *customer.type_mut() += 1;
+        assert_eq!(customer.tags(), &[1, 2]);
+        let flat = customer.into_destitute();
+        assert_eq!((flat.tags, flat.r#type), (vec![1, 2], 3));
+    }
+}
+
 #[derive(Destitute)]
 #[destitute(enum_name = "AnyPoint")]
 struct Point {

@@ -4,7 +4,7 @@ use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
 use syn::{
     Attribute, Data, DeriveInput, Error, Field, Fields, Ident, LitStr, Meta, Result, Token,
-    parse_macro_input, punctuated::Punctuated, spanned::Spanned,
+    ext::IdentExt, parse_macro_input, punctuated::Punctuated, spanned::Spanned,
 };
 
 #[proc_macro_derive(Destitute, attributes(destitute))]
@@ -21,6 +21,8 @@ struct StructOpts {
     derives: Vec<Meta>,
     attrs: Vec<Meta>,
     no_enum: bool,
+    /// Span of the `accessors` option, when given.
+    accessors: Option<proc_macro2::Span>,
     serde: bool,
     enum_name: Option<Ident>,
     enum_derives: Vec<Meta>,
@@ -42,6 +44,7 @@ fn parse_struct_opts(attrs: &[Attribute]) -> Result<StructOpts> {
                     opts.enum_name = Some(ident_from(&nv.value)?);
                 }
                 ("no_enum", Meta::Path(_)) => opts.no_enum = true,
+                ("accessors", Meta::Path(_)) => opts.accessors = Some(meta.span()),
                 #[cfg(feature = "serde")]
                 ("serde", Meta::Path(_)) => opts.serde = true,
                 #[cfg(not(feature = "serde"))]
@@ -59,8 +62,8 @@ fn parse_struct_opts(attrs: &[Attribute]) -> Result<StructOpts> {
                     return Err(Error::new(
                         meta.span(),
                         "unknown `#[destitute(...)]` option; expected one of \
-                         `name = \"..\"`, `derive(..)`, `attr(..)`, `no_enum`, `serde`, \
-                         `enum_name = \"..\"`, `enum_derive(..)`, `enum_attr(..)`",
+                         `name = \"..\"`, `derive(..)`, `attr(..)`, `no_enum`, `accessors`, \
+                         `serde`, `enum_name = \"..\"`, `enum_derive(..)`, `enum_attr(..)`",
                     ));
                 }
             }
@@ -167,6 +170,12 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
     };
 
     let opts = parse_struct_opts(&input.attrs)?;
+    if let (Some(span), true) = (opts.accessors, opts.no_enum) {
+        return Err(Error::new(
+            span,
+            "`accessors` generates methods on the enum, which `no_enum` removes",
+        ));
+    }
     let vis = &input.vis;
     let name = &input.ident;
     let name_str = name.to_string();
@@ -184,6 +193,8 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
     let mut dest_fields = Vec::new();
     let mut wrap = Vec::new();
     let mut unwrap = Vec::new();
+    let mut accessors = Vec::new();
+    let mut enum_methods = vec!["into_destitute".to_owned(), "try_undestitute".to_owned()];
     for field in fields {
         let ident = field.ident.as_ref().expect("named field");
         let ty = &field.ty;
@@ -195,6 +206,41 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
             dest_fields.push(quote!(#(#docs)* #(#[#fattrs])* #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
             unwrap.push(quote!(#ident: self.#ident));
+            if opts.accessors.is_some() {
+                let ident_mut = format_ident!("{}_mut", ident);
+                for method in [ident, &ident_mut] {
+                    let method = method.unraw().to_string();
+                    if enum_methods.contains(&method) {
+                        return Err(Error::new(
+                            ident.span(),
+                            format!(
+                                "`accessors` would generate two methods named `{method}` on the enum"
+                            ),
+                        ));
+                    }
+                    enum_methods.push(method);
+                }
+                let doc = format!("The `{}` field, whichever variant this is.", ident.unraw());
+                accessors.push(quote! {
+                    #[doc = #doc]
+                    #[allow(dead_code)]
+                    #fvis fn #ident(&self) -> &#ty {
+                        match self {
+                            Self::Complete(v) => &v.#ident,
+                            Self::Destitute(v) => &v.#ident,
+                        }
+                    }
+
+                    #[doc = #doc]
+                    #[allow(dead_code)]
+                    #fvis fn #ident_mut(&mut self) -> &mut #ty {
+                        match self {
+                            Self::Complete(v) => &mut v.#ident,
+                            Self::Destitute(v) => &mut v.#ident,
+                        }
+                    }
+                });
+            }
         } else if is_option(ty) {
             dest_fields.push(quote!(#(#docs)* #field_default #(#[#fattrs])* #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
@@ -306,6 +352,8 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
                         Self::Destitute(v) => v.try_undestitute(),
                     }
                 }
+
+                #(#accessors)*
             }
 
             impl #impl_generics ::core::convert::From<#name #ty_generics> for #en #ty_generics #where_clause {
@@ -451,6 +499,90 @@ mod tests {
         for ty in ["Vec<u8>", "Option", "foo::Option<u8>", "Option<u8, u8>"] {
             assert!(!is_option(&syn::parse_str(ty).unwrap()), "{ty}");
         }
+    }
+
+    /// Signatures of the inherent methods generated on the type `name`.
+    fn methods(src: &str, name: &str) -> Vec<String> {
+        let out = expand(syn::parse_str(src).unwrap()).unwrap();
+        let file: syn::File = syn::parse2(out).unwrap();
+        file.items
+            .iter()
+            .filter_map(|item| match item {
+                syn::Item::Impl(i) if i.trait_.is_none() => Some(i),
+                _ => None,
+            })
+            .filter(
+                |i| matches!(&*i.self_ty, syn::Type::Path(p) if p.path.segments[0].ident == name),
+            )
+            .flat_map(|i| &i.items)
+            .filter_map(|item| match item {
+                syn::ImplItem::Fn(f) => {
+                    let (vis, sig) = (&f.vis, &f.sig);
+                    Some(quote!(#vis #sig).to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    const ACCESSORS_SRC: &str = r#"
+        pub struct S<T> {
+            #[destitute(mandatory)] pub a: T,
+            #[destitute(mandatory)] pub(crate) b: u8,
+            #[destitute(mandatory)] c: u8,
+            pub d: u8,
+            pub e: Option<u8>,
+        }
+    "#;
+
+    #[test]
+    fn accessors_are_opt_in() {
+        assert_eq!(methods(ACCESSORS_SRC, "MaybeDestituteS").len(), 2);
+    }
+
+    #[test]
+    fn accessors_cover_mandatory_fields_with_the_field_visibility() {
+        let src = format!("#[destitute(accessors)] {ACCESSORS_SRC}");
+        assert_eq!(
+            methods(&src, "MaybeDestituteS")[2..],
+            [
+                quote!(pub fn a(&self) -> &T),
+                quote!(pub fn a_mut(&mut self) -> &mut T),
+                quote!(pub(crate) fn b(&self) -> &u8),
+                quote!(pub(crate) fn b_mut(&mut self) -> &mut u8),
+                quote!(fn c(&self) -> &u8),
+                quote!(fn c_mut(&mut self) -> &mut u8),
+            ]
+            .map(|t| t.to_string())
+        );
+    }
+
+    #[test]
+    fn rejects_accessors_without_the_enum() {
+        assert_eq!(
+            err("#[destitute(accessors, no_enum)] struct S { #[destitute(mandatory)] a: u8 }"),
+            "`accessors` generates methods on the enum, which `no_enum` removes"
+        );
+    }
+
+    #[test]
+    fn rejects_accessor_name_clashes() {
+        assert_eq!(
+            err("#[destitute(accessors)] struct S { #[destitute(mandatory)] into_destitute: u8 }"),
+            "`accessors` would generate two methods named `into_destitute` on the enum"
+        );
+        assert_eq!(
+            err("#[destitute(accessors)] struct S { \
+                 #[destitute(mandatory)] a: u8, #[destitute(mandatory)] a_mut: u8 }"),
+            "`accessors` would generate two methods named `a_mut` on the enum"
+        );
+        // A non-mandatory field gets no accessor, so it cannot clash.
+        assert!(
+            expand(
+                syn::parse_str("#[destitute(accessors)] struct S { try_undestitute: u8 }").unwrap()
+            )
+            .is_ok()
+        );
     }
 
     #[test]

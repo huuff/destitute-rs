@@ -38,6 +38,7 @@
 //! | `derive(A, B)` | derives added to the destitute struct |
 //! | `attr(...)` | an arbitrary attribute added to the destitute struct, e.g. `attr(serde(default))` |
 //! | `no_enum` | skip the either-or enum |
+//! | `accessors` | `field()` / `field_mut()` on the enum for every mandatory field |
 //! | `serde` | (feature `serde`) derive `Serialize`/`Deserialize` on both generated types, see below |
 //! | `enum_name = "Ident"` | name of the enum (default `MaybeDestitute<Struct>`) |
 //! | `enum_derive(A, B)` | derives added to the enum |
@@ -67,6 +68,9 @@
 //!   is reported.
 //! - `enum E { Complete(S), Destitute(D) }` with `into_destitute`,
 //!   `try_undestitute`, `From<S>` and `From<D>`.
+//! - With `accessors`: for each mandatory field `f: T`, `E::f(&self) -> &T` and
+//!   `E::f_mut(&mut self) -> &mut T`, with the visibility of the field. Two
+//!   generated methods of the same name are a compile error.
 //!
 //! # serde
 //!

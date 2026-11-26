@@ -110,6 +110,23 @@ impl From<User> for MaybeDestituteUser { .. }
 impl From<DestituteUser> for MaybeDestituteUser { .. }
 ```
 
+**5. Accessors on the enum, if you ask.** A mandatory field has the same name
+and type in both variants, so with `#[destitute(accessors)]` on the struct the
+enum can hand it out without a `match`:
+
+```rust
+impl MaybeDestituteUser {
+    fn id(&self) -> &u64 { .. }
+    fn id_mut(&mut self) -> &mut u64 { .. }
+}
+```
+
+Each mandatory field gets the pair, with the visibility of the field itself.
+They return references because the macro cannot tell whether a type is `Copy`;
+write `*user.id()`. Wrapped and `Option` fields get no accessor. Two generated
+methods with the same name (a mandatory field called `into_destitute`, or
+fields `a` and `a_mut`) are a compile error, as is `accessors` with `no_enum`.
+
 ## serde
 
 Enable the `serde` feature and add `serde` to the struct options:
@@ -205,6 +222,7 @@ split across several attributes.
 | `derive(A, B)` | derives added to the destitute struct |
 | `attr(...)` | one attribute added verbatim to the destitute struct, e.g. `attr(serde(default))` |
 | `no_enum` | do not generate the enum |
+| `accessors` | `field()` / `field_mut()` on the enum for every mandatory field |
 | `serde` | with the `serde` feature: derive `Serialize`/`Deserialize` on both generated types (see above) |
 | `enum_name = "Ident"` | name of the enum (default `MaybeDestitute<Struct>`) |
 | `enum_derive(A, B)` | derives added to the enum |
