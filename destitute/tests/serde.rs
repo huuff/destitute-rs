@@ -112,3 +112,34 @@ fn missing_field_error_is_serializable() {
         json!({ "type_name": "User", "field": "name" })
     );
 }
+
+#[derive(Destitute, Serialize, Deserialize)]
+#[destitute(serde, no_enum, derive(Debug, PartialEq))]
+struct Account {
+    #[destitute(mandatory, attr(serde(rename = "ID")))]
+    id: u64,
+    #[destitute(attr(serde(rename = "fullName", skip_serializing_if = "Option::is_none")))]
+    name: String,
+}
+
+#[test]
+fn field_attr_applies_to_the_destitute_field_only() {
+    let got: DestituteAccount =
+        serde_json::from_value(json!({ "ID": 1, "fullName": "ana" })).unwrap();
+    assert_eq!(
+        got,
+        DestituteAccount {
+            id: 1,
+            name: Some("ana".into()),
+        }
+    );
+    // The attribute sees the wrapped `Option<String>`, not the original `String`.
+    let partial = DestituteAccount { id: 1, name: None };
+    assert_eq!(serde_json::to_value(&partial).unwrap(), json!({ "ID": 1 }));
+    // The original struct is untouched.
+    let account = got.try_undestitute().unwrap();
+    assert_eq!(
+        serde_json::to_value(&account).unwrap(),
+        json!({ "id": 1, "name": "ana" })
+    );
+}

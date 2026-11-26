@@ -149,7 +149,8 @@ assert_eq!(partial.try_undestitute().unwrap_err().field, "age");
 
 Serialization is transparent: the enum serializes as whichever struct it
 holds. Your own struct still needs its own serde derives, and extra serde
-attributes go through `attr(serde(..))` / `enum_attr(serde(..))`.
+attributes go through `attr(serde(..))` / `enum_attr(serde(..))`, or the
+field-level `attr(serde(..))` for a single field.
 
 ## Field rules
 
@@ -162,6 +163,36 @@ attributes go through `attr(serde(..))` / `enum_attr(serde(..))`.
 `Option<T>` is detected by spelling: `Option<T>`, `core::option::Option<T>` and
 `std::option::Option<T>`. A type alias that hides an `Option` is wrapped like
 any other type.
+
+## Field options
+
+Inside `#[destitute(...)]` on a field, comma separated:
+
+| option | effect |
+|---|---|
+| `mandatory` | keep the field as is instead of wrapping it in `Option` |
+| `attr(...)` | attributes added verbatim to the field of the destitute struct, e.g. `attr(builder(default))` |
+
+Apart from doc comments, no attribute of the original field is copied: the
+twin's field type differs and the twin may not derive the same macros. `attr`
+is the opt-in. It is written against the *generated* field, so on a wrapped
+field the attribute sees `Option<T>`, not `T`:
+
+```rust
+#[derive(Destitute, bon::Builder)]
+#[destitute(derive(bon::Builder))]
+struct Customer {
+    #[destitute(mandatory)]
+    email: Email,
+    // `HashMap<..>` in both structs, optional setter in both builders.
+    #[builder(default)]
+    #[destitute(mandatory, attr(builder(default)))]
+    store_ids: HashMap<StoreId, CustomerId>,
+    // `Option<String>` in the twin, so the attribute must suit an `Option`.
+    #[destitute(attr(builder(name = display_name)))]
+    name: String,
+}
+```
 
 ## Struct options
 
@@ -181,7 +212,8 @@ split across several attributes.
 
 Nothing is derived on the generated types unless you ask for it, so they never
 demand bounds your original type does not satisfy. Doc comments on fields are
-carried over to the destitute struct.
+carried over to the destitute struct; other field attributes only through the
+field-level `attr(...)`.
 
 ## Limits
 

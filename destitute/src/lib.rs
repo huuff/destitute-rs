@@ -49,6 +49,12 @@
 //! they are already optional, and `None` is a valid value for them in both
 //! forms, so they never cause `try_undestitute` to fail.
 //!
+//! Also on a field, `#[destitute(attr(...))]` adds attributes verbatim to the
+//! field of the destitute struct, e.g. `attr(builder(default))` or
+//! `attr(serde(rename = "id"))`. Nothing but doc comments is copied from the
+//! original field otherwise. The attribute applies to the generated field, so
+//! on a wrapped field it sees `Option<T>`, not `T`.
+//!
 //! # Generated items
 //!
 //! For `struct S`, with destitute name `D` and enum name `E`:
@@ -75,7 +81,7 @@
 //!
 //! Your own struct still needs its own `#[derive(Serialize, Deserialize)]`.
 //! Additional serde attributes go through `attr(serde(..))` /
-//! `enum_attr(serde(..))`.
+//! `enum_attr(serde(..))`, or the field-level `attr(serde(..))`.
 //!
 //! The crate is `no_std`.
 #![no_std]

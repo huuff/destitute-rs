@@ -82,25 +82,39 @@ fn ident_from(expr: &syn::Expr) -> Result<Ident> {
     lit.parse()
 }
 
-fn is_mandatory(field: &Field) -> Result<bool> {
-    let mut mandatory = false;
+#[derive(Default)]
+struct FieldOpts {
+    mandatory: bool,
+    /// Attributes to put verbatim on the generated field.
+    attrs: Vec<Meta>,
+}
+
+fn parse_field_opts(field: &Field) -> Result<FieldOpts> {
+    let mut opts = FieldOpts::default();
     for attr in field
         .attrs
         .iter()
         .filter(|a| a.path().is_ident("destitute"))
     {
         for meta in attr.parse_args_with(Punctuated::<Meta, Token![,]>::parse_terminated)? {
-            if meta.path().is_ident("mandatory") {
-                mandatory = true;
-            } else {
-                return Err(Error::new(
-                    meta.span(),
-                    "unknown field option; only `#[destitute(mandatory)]` is supported",
-                ));
+            let key = meta
+                .path()
+                .get_ident()
+                .map(Ident::to_string)
+                .unwrap_or_default();
+            match (key.as_str(), &meta) {
+                ("mandatory", Meta::Path(_)) => opts.mandatory = true,
+                ("attr", Meta::List(list)) => opts.attrs.extend(list_items(list)?),
+                _ => {
+                    return Err(Error::new(
+                        meta.span(),
+                        "unknown field option; expected `mandatory` or `attr(..)`",
+                    ));
+                }
             }
         }
     }
-    Ok(mandatory)
+    Ok(opts)
 }
 
 /// `Option<T>`, `core::option::Option<T>` or `std::option::Option<T>`, by spelling.
@@ -175,18 +189,22 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
         let ty = &field.ty;
         let fvis = &field.vis;
         let docs = doc_attrs(&field.attrs);
-        if is_mandatory(field)? {
-            dest_fields.push(quote!(#(#docs)* #fvis #ident: #ty));
+        let field_opts = parse_field_opts(field)?;
+        let fattrs = &field_opts.attrs;
+        if field_opts.mandatory {
+            dest_fields.push(quote!(#(#docs)* #(#[#fattrs])* #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
             unwrap.push(quote!(#ident: self.#ident));
         } else if is_option(ty) {
-            dest_fields.push(quote!(#(#docs)* #field_default #fvis #ident: #ty));
+            dest_fields.push(quote!(#(#docs)* #field_default #(#[#fattrs])* #fvis #ident: #ty));
             wrap.push(quote!(#ident: self.#ident));
             unwrap.push(quote!(#ident: self.#ident));
         } else {
             let field_str = ident.to_string();
-            dest_fields
-                .push(quote!(#(#docs)* #field_default #fvis #ident: ::core::option::Option<#ty>));
+            dest_fields.push(quote! {
+                #(#docs)* #field_default #(#[#fattrs])*
+                #fvis #ident: ::core::option::Option<#ty>
+            });
             wrap.push(quote!(#ident: ::core::option::Option::Some(self.#ident)));
             unwrap.push(quote! {
                 #ident: match self.#ident {
@@ -310,6 +328,7 @@ fn expand(input: DeriveInput) -> Result<TokenStream> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use quote::ToTokens;
 
     fn err(src: &str) -> String {
         expand(syn::parse_str(src).unwrap())
@@ -338,6 +357,86 @@ mod tests {
         assert!(
             err("struct S { #[destitute(optional)] a: u8 }").starts_with("unknown field option")
         );
+    }
+
+    /// Attributes on each field of the generated struct `name`, as `(field, [meta, ..])`.
+    fn field_attrs(src: &str, name: &str) -> Vec<(String, Vec<String>)> {
+        let out = expand(syn::parse_str(src).unwrap()).unwrap();
+        let file: syn::File = syn::parse2(out).unwrap();
+        let item = file
+            .items
+            .iter()
+            .find_map(|item| match item {
+                syn::Item::Struct(s) if s.ident == name => Some(s),
+                _ => None,
+            })
+            .unwrap();
+        item.fields
+            .iter()
+            .map(|f| {
+                let attrs = f
+                    .attrs
+                    .iter()
+                    .filter(|a| !a.path().is_ident("doc"))
+                    .map(|a| a.meta.to_token_stream().to_string())
+                    .collect();
+                (f.ident.as_ref().unwrap().to_string(), attrs)
+            })
+            .collect()
+    }
+
+    fn meta(tokens: TokenStream) -> String {
+        tokens.to_string()
+    }
+
+    #[test]
+    fn field_attr_is_passed_through_on_every_kind_of_field() {
+        let src = r#"
+            struct S {
+                #[destitute(mandatory, attr(builder(default)))]
+                #[builder(dropped)]
+                a: u8,
+                #[destitute(attr(builder(into), serde(rename = "bee")))]
+                b: u8,
+                #[destitute(attr(builder(name = sea)))]
+                #[destitute(attr(allow(dead_code)))]
+                c: Option<u8>,
+                d: u8,
+            }
+        "#;
+        assert_eq!(
+            field_attrs(src, "DestituteS"),
+            [
+                ("a".to_owned(), vec![meta(quote!(builder(default)))]),
+                (
+                    "b".to_owned(),
+                    vec![
+                        meta(quote!(builder(into))),
+                        meta(quote!(serde(rename = "bee")))
+                    ]
+                ),
+                (
+                    "c".to_owned(),
+                    vec![
+                        meta(quote!(builder(name = sea))),
+                        meta(quote!(allow(dead_code)))
+                    ]
+                ),
+                ("d".to_owned(), vec![]),
+            ]
+        );
+    }
+
+    #[test]
+    fn rejects_malformed_field_options() {
+        for src in [
+            "struct S { #[destitute(mandatory(x))] a: u8 }",
+            "struct S { #[destitute(mandatory = true)] a: u8 }",
+            "struct S { #[destitute(attr)] a: u8 }",
+            "struct S { #[destitute(attr = \"x\")] a: u8 }",
+        ] {
+            assert!(err(src).starts_with("unknown field option"), "{src}");
+        }
     }
 
     #[test]
